@@ -67,15 +67,15 @@ namespace Abp
             IocManager.IocContainer.Install(new EventBusInstaller(IocManager));
 
             IocManager.Register(typeof(IOnlineClientManager<>), typeof(OnlineClientManager<>), DependencyLifeStyle.Singleton);
+            IocManager.Register(typeof(IOnlineClientStore<>), typeof(InMemoryOnlineClientStore<>), DependencyLifeStyle.Singleton);
 
-            IocManager.Register(typeof(EventTriggerAsyncBackgroundJob<>),DependencyLifeStyle.Transient);
-            
+            IocManager.Register(typeof(EventTriggerAsyncBackgroundJob<>), DependencyLifeStyle.Transient);
+
             IocManager.RegisterAssemblyByConvention(typeof(AbpKernelModule).GetAssembly(),
                 new ConventionalRegistrationConfig
                 {
                     InstallInstallers = false
                 });
-            
         }
 
         public override void PostInitialize()

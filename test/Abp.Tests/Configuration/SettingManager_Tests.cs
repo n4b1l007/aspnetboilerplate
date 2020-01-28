@@ -9,6 +9,8 @@ using Abp.Runtime.Caching.Memory;
 using Abp.Runtime.Remoting;
 using Abp.Runtime.Session;
 using Abp.TestBase.Runtime.Session;
+using Abp.Tests.MultiTenancy;
+using JetBrains.Annotations;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -33,13 +35,12 @@ namespace Abp.Tests.Configuration
             return new SettingManager(
                 CreateMockSettingDefinitionManager(),
                 new AbpMemoryCacheManager(
-                    LocalIocManager,
                     new CachingConfiguration(Substitute.For<IAbpStartupConfiguration>())
                     ),
                 new MultiTenancyConfig
                 {
                     IsEnabled = multiTenancyIsEnabled
-                });
+                }, new TestTenantStore());
         }
 
         [Fact]
@@ -210,6 +211,47 @@ namespace Abp.Tests.Configuration
             value.ShouldBe("53");
         }
 
+        [Fact]
+        public async Task Should_Get_Tenant_Setting_For_Application_Level_Setting_When_Multi_Tenancy_Is_Disabled()
+        {
+            // Arrange
+            var session = CreateTestAbpSession(multiTenancyIsEnabled: false);
+
+            var settingManager = CreateSettingManager(multiTenancyIsEnabled: false);
+            settingManager.SettingStore = new MemorySettingStore();
+            settingManager.AbpSession = session;
+
+            // Act
+            await settingManager.ChangeSettingForApplicationAsync(MyAllLevelsSetting, "53");
+
+            // Assert
+            var value = await settingManager.GetSettingValueForApplicationAsync(MyAllLevelsSetting);
+            value.ShouldBe("53");
+        }
+
+        [Fact]
+        public async Task Should_Change_Setting_Value_When_Multi_Tenancy_Is_Disabled()
+        {
+            // Arrange
+            var session = CreateTestAbpSession(multiTenancyIsEnabled: false);
+
+            var settingManager = CreateSettingManager(multiTenancyIsEnabled: false);
+            settingManager.SettingStore = new MemorySettingStore();
+            settingManager.AbpSession = session;
+
+            //change setting value with "B"
+            await settingManager.ChangeSettingForApplicationAsync(MyAppLevelSetting, "B");
+
+            // it's ok
+            ( await settingManager.GetSettingValueForApplicationAsync(MyAppLevelSetting) ).ShouldBe("B");
+
+            //change setting with same value "B" again,
+            await settingManager.ChangeSettingForApplicationAsync(MyAppLevelSetting, "B");
+
+            //but was "A" ,that's wrong
+            ( await settingManager.GetSettingValueForApplicationAsync(MyAppLevelSetting) ).ShouldBe("B");
+        }
+
         private static TestAbpSession CreateTestAbpSession(bool multiTenancyIsEnabled = true)
         {
             return new TestAbpSession(
@@ -263,8 +305,18 @@ namespace Abp.Tests.Configuration
                 return Task.FromResult(_settings.FirstOrDefault(s => s.TenantId == tenantId && s.UserId == userId && s.Name == name));
             }
 
+            public SettingInfo GetSettingOrNull(int? tenantId, long? userId, string name)
+            {
+                return _settings.FirstOrDefault(s => s.TenantId == tenantId && s.UserId == userId && s.Name == name);
+            }
+
 #pragma warning disable 1998
             public async Task DeleteAsync(SettingInfo setting)
+            {
+                _settings.RemoveAll(s => s.TenantId == setting.TenantId && s.UserId == setting.UserId && s.Name == setting.Name);
+            }
+
+            public void Delete(SettingInfo setting)
             {
                 _settings.RemoveAll(s => s.TenantId == setting.TenantId && s.UserId == setting.UserId && s.Name == setting.Name);
             }
@@ -272,6 +324,11 @@ namespace Abp.Tests.Configuration
 
 #pragma warning disable 1998
             public async Task CreateAsync(SettingInfo setting)
+            {
+                _settings.Add(setting);
+            }
+
+            public void Create(SettingInfo setting)
             {
                 _settings.Add(setting);
             }
@@ -286,9 +343,23 @@ namespace Abp.Tests.Configuration
                 }
             }
 
+            public void Update(SettingInfo setting)
+            {
+                var s = GetSettingOrNull(setting.TenantId, setting.UserId, setting.Name);
+                if (s != null)
+                {
+                    s.Value = setting.Value;
+                }
+            }
+
             public Task<List<SettingInfo>> GetAllListAsync(int? tenantId, long? userId)
             {
                 return Task.FromResult(_settings.Where(s => s.TenantId == tenantId && s.UserId == userId).ToList());
+            }
+
+            public List<SettingInfo> GetAllList(int? tenantId, long? userId)
+            {
+                return _settings.Where(s => s.TenantId == tenantId && s.UserId == userId).ToList();
             }
         }
     }

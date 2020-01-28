@@ -1,64 +1,37 @@
 using System;
-using System.Buffers;
-using System.Collections.Concurrent;
-using System.Linq;
-using Abp.Dependency;
-using Abp.Json;
 using Abp.Web.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using Microsoft.AspNetCore.Mvc.Formatters;
-using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json.Serialization;
 
 namespace Abp.AspNetCore.Mvc.Results.Wrapping
 {
     public class AbpObjectActionResultWrapper : IAbpActionResultWrapper
     {
-        private readonly IServiceProvider _serviceProvider;
-
-        private static readonly ConcurrentDictionary<Type, AbpMvcContractResolver> SharedContractResolver =
-            new ConcurrentDictionary<Type, AbpMvcContractResolver>();
-
-        public AbpObjectActionResultWrapper(IServiceProvider serviceProvider)
+        public void Wrap(FilterContext context)
         {
-            _serviceProvider = serviceProvider;
-        }
+            ObjectResult objectResult = null;
 
-        public void Wrap(ResultExecutingContext actionResult, WrapResultAttribute wrapResultAttribute)
-        {
-            var objectResult = actionResult.Result as ObjectResult;
+            switch (context)
+            {
+                case ResultExecutingContext resultExecutingContext:
+                    objectResult = resultExecutingContext.Result as ObjectResult;
+                    break;
+
+                case PageHandlerExecutedContext pageHandlerExecutedContext:
+                    objectResult = pageHandlerExecutedContext.Result as ObjectResult;
+                    break;
+            }
+
             if (objectResult == null)
             {
-                throw new ArgumentException($"{nameof(actionResult)} should be ObjectResult!");
+                throw new ArgumentException("Action Result should be JsonResult!");
             }
 
-            if (objectResult.Value is AjaxResponseBase)
+            if (!(objectResult.Value is AjaxResponseBase))
             {
-                return;
+                objectResult.Value = new AjaxResponse(objectResult.Value);
+                objectResult.DeclaredType = typeof(AjaxResponse);
             }
-
-            objectResult.Value = new AjaxResponse(objectResult.Value);
-            if (objectResult.Formatters.Any(f => f is JsonOutputFormatter))
-            {
-                return;
-            }
-
-            var serializerSettings = JsonSerializerSettingsProvider.CreateSerializerSettings();
-            serializerSettings.ContractResolver = SharedContractResolver.GetOrAdd(
-                wrapResultAttribute.NamingStrategyType, namingStrategyType =>
-                    new AbpMvcContractResolver(_serviceProvider.GetRequiredService<IIocResolver>())
-                    {
-                        NamingStrategy =
-                            (NamingStrategy)Activator.CreateInstance(namingStrategyType)
-                    });
-
-            objectResult.Formatters.Add(
-                new JsonOutputFormatter(
-                    serializerSettings,
-                    _serviceProvider.GetRequiredService<ArrayPool<char>>()
-                )
-            );
         }
     }
 }
